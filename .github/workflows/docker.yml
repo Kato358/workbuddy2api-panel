@@ -1,17 +1,10 @@
 name: Docker image
 
 on:
-  push:
-    branches: [main]
-    paths-ignore:
-      - "**/*.md"
-      - ".gitignore"
-      - "LICENSE"
   workflow_dispatch:
-  workflow_call:
     inputs:
       ref:
-        description: Git SHA or ref to build
+        description: Git SHA or ref to build (empty = current branch)
         required: false
         type: string
 
@@ -21,7 +14,7 @@ permissions:
   actions: write
 
 concurrency:
-  group: docker-${{ github.workflow }}-${{ inputs.ref || github.sha }}
+  group: docker-image
   cancel-in-progress: true
 
 env:
@@ -37,21 +30,23 @@ jobs:
         with:
           ref: ${{ inputs.ref || github.sha }}
 
-      - name: Image name
+      - name: Image tags
         id: image
         run: |
           set -euo pipefail
-          echo "name=${REGISTRY}/$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')" >> "${GITHUB_OUTPUT}"
-          echo "sha=$(git rev-parse --short HEAD)" >> "${GITHUB_OUTPUT}"
-
-      - name: Docker metadata
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ steps.image.outputs.name }}
-          tags: |
-            type=raw,value=latest
-            type=raw,value=sha-${{ steps.image.outputs.sha }}
+          name="${REGISTRY}/$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')"
+          sha="$(git rev-parse --short HEAD)"
+          {
+            echo "name=${name}"
+            echo "sha=${sha}"
+            echo "tags<<EOF"
+            echo "${name}:latest"
+            echo "${name}:sha-${sha}"
+            echo "EOF"
+          } >> "${GITHUB_OUTPUT}"
+          echo "tags:"
+          echo "  ${name}:latest"
+          echo "  ${name}:sha-${sha}"
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
@@ -73,8 +68,15 @@ jobs:
           file: ./Dockerfile
           push: true
           platforms: linux/amd64,linux/arm64
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
+          tags: ${{ steps.image.outputs.tags }}
           provenance: false
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - name: Summary
+        run: |
+          {
+            echo "### Image tags"
+            echo "- \`${{ steps.image.outputs.name }}:latest\`"
+            echo "- \`${{ steps.image.outputs.name }}:sha-${{ steps.image.outputs.sha }}\`"
+          } >> "${GITHUB_STEP_SUMMARY}"
