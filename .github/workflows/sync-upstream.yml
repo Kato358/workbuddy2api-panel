@@ -1,0 +1,94 @@
+name: Sync upstream
+
+on:
+  schedule:
+    # 每天 04:17 UTC（避开整点高峰）
+    - cron: "17 4 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  packages: write
+
+concurrency:
+  group: sync-upstream
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    name: Merge linguo2625469/workbuddy2api-panel into main
+    runs-on: ubuntu-latest
+    outputs:
+      synced: ${{ steps.sync.outputs.synced }}
+      before: ${{ steps.sync.outputs.before }}
+      after: ${{ steps.sync.outputs.after }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Merge upstream
+        id: sync
+        env:
+          UPSTREAM_URL: https://github.com/linguo2625469/workbuddy2api-panel.git
+          UPSTREAM_BRANCH: main
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git fetch origin "${UPSTREAM_BRANCH}"
+          git fetch "${UPSTREAM_URL}" "${UPSTREAM_BRANCH}:refs/remotes/upstream/${UPSTREAM_BRANCH}"
+          git checkout -B "${UPSTREAM_BRANCH}" "origin/${UPSTREAM_BRANCH}"
+
+          local_sha="$(git rev-parse HEAD)"
+          upstream_sha="$(git rev-parse "refs/remotes/upstream/${UPSTREAM_BRANCH}")"
+          echo "before=${local_sha}" >> "${GITHUB_OUTPUT}"
+          echo "local=${local_sha}"
+          echo "upstream=${upstream_sha}"
+
+          if [ "${local_sha}" = "${upstream_sha}" ]; then
+            echo "after=${local_sha}" >> "${GITHUB_OUTPUT}"
+            echo "synced=false" >> "${GITHUB_OUTPUT}"
+            echo "Already equal to upstream ${upstream_sha}"
+            exit 0
+          fi
+
+          if git merge-base --is-ancestor "${upstream_sha}" HEAD; then
+            echo "after=${local_sha}" >> "${GITHUB_OUTPUT}"
+            echo "synced=false" >> "${GITHUB_OUTPUT}"
+            echo "main already contains upstream ${upstream_sha}; skip."
+            exit 0
+          fi
+
+          if git merge --no-edit -m "chore: sync upstream ${upstream_sha}" "refs/remotes/upstream/${UPSTREAM_BRANCH}"; then
+            if [ ! -f .github/workflows/docker.yml ]; then
+              echo "::error::Merge dropped .github/workflows/docker.yml"
+              exit 1
+            fi
+            after_sha="$(git rev-parse HEAD)"
+            git push origin "HEAD:refs/heads/${UPSTREAM_BRANCH}"
+            echo "after=${after_sha}" >> "${GITHUB_OUTPUT}"
+            echo "synced=true" >> "${GITHUB_OUTPUT}"
+            echo "Merged upstream ${upstream_sha} into ${UPSTREAM_BRANCH} -> ${after_sha}"
+            exit 0
+          fi
+
+          echo "::error::Merge conflict with upstream ${upstream_sha}. Manual merge required."
+          git merge --abort || true
+          exit 1
+
+  docker:
+    name: Build image after sync
+    needs: sync
+    if: needs.sync.outputs.synced == 'true'
+    permissions:
+      contents: read
+      packages: write
+      actions: write
+    uses: ./.github/workflows/docker.yml
+    with:
+      ref: ${{ needs.sync.outputs.after }}
+    secrets: inherit

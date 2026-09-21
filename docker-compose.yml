@@ -1,5 +1,6 @@
 services:
   wb2api:
+    image: ${WB2API_IMAGE:-ghcr.io/kato358/workbuddy2api-panel:latest}
     build: .
     container_name: workbuddy2api
     restart: unless-stopped

@@ -231,6 +231,20 @@ docker compose restart          # 重启
 docker compose down             # 停止并移除容器（数据在 ./auths 与 ./data，不受影响）
 ```
 
+预构建镜像由 GitHub Actions 推到 GHCR（同步上游成功或 `main` 有提交即构建）：
+
+```bash
+# 拉镜像启动（无需本机构建）
+docker compose pull
+docker compose up -d
+
+# 镜像地址
+# ghcr.io/kato358/workbuddy2api-panel:latest
+# ghcr.io/kato358/workbuddy2api-panel:sha-<short>
+```
+
+Actions：每天 04:17 UTC 自动 merge [`linguo2625469/workbuddy2api-panel`](https://github.com/linguo2625469/workbuddy2api-panel) 的 `main`；有新提交才 push，随后构建 `linux/amd64` + `linux/arm64`。冲突则失败，需手工处理。也可在 Actions 里手动跑 **Sync upstream** / **Docker image**。首次推送后到 GitHub Packages 把 `workbuddy2api-panel` 设为 Public，否则未登录拉不到。Fork 需先在仓库 Settings → Actions 打开 workflow。
+
 ### 方式二：Windows 单文件运行（无需 Docker）
 
 ```powershell
